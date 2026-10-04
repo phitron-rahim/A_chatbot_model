@@ -1,12 +1,17 @@
+
 from __future__ import annotations
 
 import os
 import re
-from typing import Any
+from pathlib import Path
 
 from dotenv import load_dotenv
-from langchain_core.runnables import RunnableBranch, RunnableLambda, RunnableParallel
 from langchain_groq import ChatGroq
+from langchain_core.runnables import (
+    RunnableBranch,
+    RunnableLambda,
+    RunnableParallel,
+)
 
 from prompts import (
     GENERAL_PROMPT,
@@ -17,46 +22,97 @@ from prompts import (
 from schemas import AnswerPayload, ChatbotResponse, SummaryPayload
 
 
-PROGRAMMING_PATTERN = re.compile(
-    r"\b(python|java|javascript|typescript|c\+\+|code|debug|function|class|"
-    r"algorithm|api|database|sql|html|css|react|django|flask|streamlit)\b",
-    re.IGNORECASE,
-)
+# --------------------------------------------------
+# Environment configuration
+# --------------------------------------------------
 
-MATH_PATTERN = re.compile(
-    r"\b(math|algebra|calculus|geometry|equation|integral|derivative|matrix|"
-    r"probability|statistics|solve|factor|simplify)\b|[0-9]+\s*[-+*/^]\s*[0-9]+",
-    re.IGNORECASE,
-)
+BASE_DIR = Path(__file__).resolve().parent
+ENV_FILE = BASE_DIR / ".env"
 
 
 def get_chat_model() -> ChatGroq:
-    """Loads the Groq model from the .env file."""
+    """Load configuration and initialize the Groq model."""
 
-    load_dotenv()
-
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "GROQ_API_KEY not found. Please add it to your .env file."
+    if not ENV_FILE.is_file():
+        raise FileNotFoundError(
+            f".env file not found: {ENV_FILE}"
         )
 
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    model_name = os.getenv(
+        "GROQ_MODEL",
+        "openai/gpt-oss-20b",
+    ).strip()
+
+    temperature = float(
+        os.getenv("GROQ_TEMPERATURE", "0.2")
+    )
+
+    if not api_key:
+        raise RuntimeError(
+            "GROQ_API_KEY is missing or empty in .env."
+        )
+
+    if not model_name:
+        raise RuntimeError(
+            "GROQ_MODEL is missing or empty in .env."
+        )
+
+    # Safe diagnostics: never print the API key itself.
+    print("Environment file found:", ENV_FILE)
+    print("API key loaded:", bool(api_key))
+    print("Groq model:", model_name)
+
     return ChatGroq(
-        model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
-        temperature=float(os.getenv("GROQ_TEMPERATURE", "0.2")),
+        model=model_name,
+        temperature=temperature,
         api_key=api_key,
     )
 
 
-def is_programming(data: dict[str, Any]) -> bool:
-    return bool(PROGRAMMING_PATTERN.search(data["question"]))
+# --------------------------------------------------
+# Question classification
+# --------------------------------------------------
+
+PROGRAMMING_PATTERN = re.compile(
+    r"\b(python|java|javascript|typescript|c\+\+|code|debug|"
+    r"function|class|algorithm|api|database|sql|html|css|"
+    r"react|django|flask|streamlit)\b",
+    re.IGNORECASE,
+)
+
+MATH_PATTERN = re.compile(
+    r"\b(math|algebra|calculus|geometry|equation|integral|"
+    r"derivative|matrix|probability|statistics|solve|factor|"
+    r"simplify|addition|subtraction|multiplication|division)\b"
+    r"|[0-9]+\s*[-+*/^]\s*[0-9]+",
+    re.IGNORECASE,
+)
 
 
-def is_math(data: dict[str, Any]) -> bool:
-    return bool(MATH_PATTERN.search(data["question"]))
+def is_programming(data: dict) -> bool:
+    """Return True for programming-related questions."""
+
+    question = str(data.get("question", ""))
+    return bool(PROGRAMMING_PATTERN.search(question))
 
 
-def combine_results(data: dict[str, Any]) -> ChatbotResponse:
+def is_math(data: dict) -> bool:
+    """Return True for mathematics-related questions."""
+
+    question = str(data.get("question", ""))
+    return bool(MATH_PATTERN.search(question))
+
+
+# --------------------------------------------------
+# Combine structured outputs
+# --------------------------------------------------
+
+def combine_results(data: dict) -> ChatbotResponse:
+    """Combine the answer and summary into one response."""
+
     answer = data["answer"]
     summary = data["summary"]
 
@@ -70,28 +126,60 @@ def combine_results(data: dict[str, Any]) -> ChatbotResponse:
     )
 
 
+# --------------------------------------------------
+# Build LangChain pipeline
+# --------------------------------------------------
+
 def build_chain():
-    """Creates the chatbot pipeline."""
+    """Build and return the complete chatbot chain."""
 
     model = get_chat_model()
 
-    answer_llm = model.with_structured_output(AnswerPayload)
-    summary_llm = model.with_structured_output(SummaryPayload)
+    answer_llm = model.with_structured_output(
+        AnswerPayload,
+        method="function_calling",
+    )
 
-    branch = RunnableBranch(
-        (is_programming, PROGRAMMING_PROMPT | answer_llm),
-        (is_math, MATH_PROMPT | answer_llm),
+    summary_llm = model.with_structured_output(
+        SummaryPayload,
+        method="function_calling",
+    )
+
+    # Route each question to the appropriate prompt.
+    answer_chain = RunnableBranch(
+        (
+            is_programming,
+            PROGRAMMING_PROMPT | answer_llm,
+        ),
+        (
+            is_math,
+            MATH_PROMPT | answer_llm,
+        ),
         GENERAL_PROMPT | answer_llm,
     )
 
-    parallel = RunnableParallel(
-        answer=branch,
+    # Generate the answer and summary concurrently.
+    parallel_chain = RunnableParallel(
+        answer=answer_chain,
         summary=SUMMARY_PROMPT | summary_llm,
     )
 
-    return parallel | RunnableLambda(combine_results)
+    # Return a ChatbotResponse object.
+    return parallel_chain | RunnableLambda(combine_results)
 
+
+# --------------------------------------------------
+# Public chatbot function
+# --------------------------------------------------
 
 def ask_chatbot(question: str) -> ChatbotResponse:
-    chatbot = build_chain()
-    return chatbot.invoke({"question": question})
+    """Answer a non-empty question using the chatbot."""
+
+    if not question or not question.strip():
+        raise ValueError("Question cannot be empty.")
+
+    chain = build_chain()
+
+    return chain.invoke(
+        {"question": question.strip()}
+    )
