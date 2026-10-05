@@ -5,7 +5,10 @@ import os
 import re
 from pathlib import Path
 
+import streamlit as st
+
 from dotenv import load_dotenv
+
 from langchain_groq import ChatGroq
 from langchain_core.runnables import (
     RunnableBranch,
@@ -29,18 +32,20 @@ from schemas import AnswerPayload, ChatbotResponse, SummaryPayload
 BASE_DIR = Path(__file__).resolve().parent
 ENV_FILE = BASE_DIR / ".env"
 
-
 def get_chat_model() -> ChatGroq:
     """Load configuration and initialize the Groq model."""
 
-    if not ENV_FILE.is_file():
-        raise FileNotFoundError(
-            f".env file not found: {ENV_FILE}"
-        )
-
-    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    if ENV_FILE.is_file():
+        load_dotenv(dotenv_path=ENV_FILE, override=True)
 
     api_key = os.getenv("GROQ_API_KEY", "").strip()
+
+    if not api_key:
+        try:
+            api_key = str(st.secrets["GROQ_API_KEY"]).strip()
+        except Exception:
+            api_key = ""
+
     model_name = os.getenv(
         "GROQ_MODEL",
         "openai/gpt-oss-20b",
@@ -52,16 +57,16 @@ def get_chat_model() -> ChatGroq:
 
     if not api_key:
         raise RuntimeError(
-            "GROQ_API_KEY is missing or empty in .env."
+            "GROQ_API_KEY is missing or empty."
         )
 
     if not model_name:
         raise RuntimeError(
-            "GROQ_MODEL is missing or empty in .env."
+            "GROQ_MODEL is missing or empty."
         )
 
     # Safe diagnostics: never print the API key itself.
-    print("Environment file found:", ENV_FILE)
+    print("Environment file found:", ENV_FILE.is_file())
     print("API key loaded:", bool(api_key))
     print("Groq model:", model_name)
 
