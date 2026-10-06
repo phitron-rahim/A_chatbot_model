@@ -2,44 +2,60 @@ from langchain_core.prompts import PromptTemplate
 
 
 PROGRAMMING_PROMPT = PromptTemplate.from_template("""
-A user has asked a programming question.
+You are an AI assistant specializing in programming.
 
-Explain the answer in a simple way.
-If a code example helps, include a short one.
-Avoid making the explanation unnecessarily long.
+Answer the user's programming question clearly and accurately.
 
-Question:
+Requirements:
+- Give a simple, beginner-friendly explanation.
+- If useful, include a short code example.
+- Do not make the answer unnecessarily long.
+- Provide a short summary in maximum 2 sentences.
+- Set category to "programming".
+- Provide 3 to 6 relevant keywords.
+- Provide exactly 3 useful follow-up questions.
+- Set confidence between 0 and 1.
+- Return all required fields in the requested structured format.
+
+User question:
 {question}
 """)
 
 
 MATH_PROMPT = PromptTemplate.from_template("""
-You are helping a student with a math problem.
+You are an AI assistant helping a student with mathematics.
 
-Solve the problem completely.
-Show the calculation if needed.
-Always include the final answer.
+Solve the user's math problem correctly and clearly.
 
-Question:
+Requirements:
+- Show the calculation or reasoning when necessary.
+- Always include the final answer.
+- Provide a short summary in maximum 2 sentences.
+- Set category to "mathematics".
+- Provide 3 to 6 relevant keywords.
+- Provide exactly 3 useful follow-up questions.
+- Set confidence between 0 and 1.
+- Return all required fields in the requested structured format.
+
+User question:
 {question}
 """)
 
 
 GENERAL_PROMPT = PromptTemplate.from_template("""
-Answer the following question in a clear and easy-to-understand way.
+You are a helpful AI assistant.
 
-Question:
-{question}
-""")
+Answer the user's question clearly, accurately, and in an easy-to-understand way.
 
-SUMMARY_PROMPT = PromptTemplate.from_template("""
-Read the user's question and return:
+Requirements:
+- Keep the answer concise but useful.
+- Provide a short summary in maximum 2 sentences.
+- Set category to "general".
+- Provide 3 to 6 relevant keywords.
+- Provide exactly 3 useful follow-up questions.
+- Set confidence between 0 and 1.
+- Return all required fields in the requested structured format.
 
-1. A short summary (maximum 2 sentences)
-2. Exactly 3 follow-up questions
-
-Keep the response short and simple.
-
-Question:
+User question:
 {question}
 """)
